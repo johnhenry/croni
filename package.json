@@ -1,7 +1,7 @@
 {
   "name": "croni",
   "version": "0.0.0",
-  "description": "A server for triggering endpoints remotely",
+  "description": "A server for triggering endpoints remotely on a schedule",
   "main": "index.mjs",
   "type": "module",
   "types": "types/croni.d.ts",
