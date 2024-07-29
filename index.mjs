@@ -3,16 +3,24 @@ import express from "express";
 import bodyParser from "body-parser";
 import cron from "node-cron";
 import axios from "axios";
+import parser from "cron-parser";
+import { TEXT_CRONMOWER } from "./ascii-art.mjs";
+// import PACKAGE from "./package.json"  with { type: 'json' }
+// (node:3838) ExperimentalWarning: Importing JSON modules is an experimental feature and might change at any time
+// (Use `node --trace-warnings ...` to show where the warning was created)
+const PACKAGE = {
+  name: "cronmower",
+};
 
-const { log, error } = console;
+const { log } = console;
 const Log = (on) => (on ? log : () => {});
-const Error = (on) => (on ? error : () => {});
+
 import {
-  CRONI_FETCH_SCHEDULE,
-  CRONI_FETCH_ENDPOINT,
-  CRONI_SCHEDULE_LENGTH,
-  CRONI_VERBOSE,
-  CRONI_PORT,
+  CRONMOWER_FETCH_SCHEDULE,
+  CRONMOWER_FETCH_ENDPOINT,
+  CRONMOWER_SCHEDULE_LENGTH,
+  CRONMOWER_VERBOSE,
+  CRONMOWER_PORT,
 } from "./config.mjs";
 /**
  * Represents a Cron Server that sends POST requests to configured endpoints on a cron schedule.
@@ -27,50 +35,92 @@ class CronServer {
    * @param {number} options.scheduleLength - The length of time (in minutes) for which a schedule is valid. If not provided, a default length will be used.
    */
   constructor(options = {}) {
-    this.port = options.port || CRONI_PORT;
-    this.fetchSchedule = options.fetchSchedule || CRONI_FETCH_SCHEDULE;
-    this.fetchEndpoint = options.fetchEndpoint || CRONI_FETCH_ENDPOINT;
-    this.scheduleLength = options.scheduleLength || CRONI_SCHEDULE_LENGTH;
-    this.verbose = options.verbose || CRONI_VERBOSE;
+    this.port = options.port || CRONMOWER_PORT;
+    this.fetchEndpoint = options.fetchEndpoint || CRONMOWER_FETCH_ENDPOINT;
+    this.fetchSchedule = options.fetchSchedule || CRONMOWER_FETCH_SCHEDULE;
+    this.scheduleLength = options.scheduleLength || CRONMOWER_SCHEDULE_LENGTH;
+    this.verbose = options.verbose || CRONMOWER_VERBOSE;
     this.app = express();
-    this.app.use(bodyParser.json());
+    // this.app.use(bodyParser.json());
     this.schedules = {};
     this.cronJobs = {};
     this.log = Log(options.verbose);
-    this.error = Error(options.verbose);
+    this.log = (message, type = undefined) => {
+      if (type) {
+        return console.log(`${PACKAGE.name} [${type}] ${message}`, `\n`);
+      }
+      return console.log(message, `\n`);
+    };
 
     this.initRoutes();
-    this.startFetchingSchedules();
   }
 
   /**
    * Initializes the routes for the application.
    */
   initRoutes() {
-    this.app.patch("/", this.updateSchedules.bind(this));
-    this.app.get("/", this.getRoot.bind(this));
+    this.app.patch(
+      "/schedules",
+      bodyParser.text(),
+      this.restartFetchSchedule.bind(this)
+    );
     this.app.get("/schedules", this.getSchedules.bind(this));
+    this.app.delete("/schedules", this.resetSchedules.bind(this));
+    this.app.patch("/", bodyParser.json(), this.updateSchedules.bind(this));
+    this.app.get("/", this.getRoot.bind(this));
   }
-
+  /**
+   * Restarts fetch schedule with optional new schdeule from body
+   * @param {Object} req - The request object.
+   * @param {Object} res - The response object.
+   */
+  async restartFetchSchedule(req, res) {
+    const fetchSchedule = await req.body;
+    this.stopFetchingSchedules();
+    this.fetchSchedule = fetchSchedule;
+    this.startFetchingSchedules();
+    this.log(`fetch schedule updated ${fetchSchedule}`, "info");
+    res.sendStatus(200);
+  }
+  /**
+   * Deletes schedules and forces refetch
+   * @param {Object} req - The request object.
+   * @param {Object} res - The response object.
+   */
+  async resetSchedules(req, res) {
+    Object.entries(this.schedules).forEach(([endpoint]) => {
+      this.stopCronJob(endpoint);
+      delete this.schedules[endpoint];
+    });
+    await this.fetchSchedules();
+    res.sendStatus(200);
+  }
   /**
    * Starts fetching schedules.
    */
   startFetchingSchedules() {
-    cron.schedule(this.fetchSchedule, this.fetchSchedules.bind(this));
+    this.cron = cron.schedule(
+      this.fetchSchedule,
+      this.fetchSchedules.bind(this)
+    );
   }
-
+  /**
+   * Stopss fetching schedules.
+   */
+  stopFetchingSchedules() {
+    this.cron.stop();
+  }
   /**
    * Fetches schedules from the specified endpoint.
    * @returns {Promise<void>} A promise that resolves when the schedules are fetched.
    */
   async fetchSchedules() {
     try {
+      this.status();
       const response = await axios.get(this.fetchEndpoint);
-      this.log("Fetched schedules:", response.data);
       this.update(response.data);
-      this.log("Updated schedules:", this.schedules);
     } catch (error) {
-      this.error("Error fetching schedules:", error.message);
+      this.log(`Error fetching schedules: ${error.message}`, "error");
     }
   }
 
@@ -82,11 +132,10 @@ class CronServer {
   startCronJob(endpoint, cronSchedule) {
     this.cronJobs[endpoint] = cron.schedule(cronSchedule, async () => {
       try {
-        this.log(`Sending POST request to ${endpoint}`);
+        this.log(endpoint, "ping");
         await axios.post(endpoint);
-        this.log(`Sent POST request to ${endpoint}`);
       } catch (error) {
-        this.error(`Error sending POST request to ${endpoint}:`, error.message);
+        this.log(`error pinging ${endpoint}: ${error.message}`, "error");
       }
     });
   }
@@ -173,9 +222,23 @@ class CronServer {
   /**
    * Starts the CronServer by listening on the specified port.
    */
+
+  status() {
+    const parsedSchedules = parser.parseExpression(this.fetchSchedule);
+    const times = [];
+    times.push(`last: {parsedSchedules.prev().toString()}`);
+    times.push(`previous: {parsedSchedules.next().toString()}`);
+    this.log(`${this.fetchEndpoint}\n${times.join("\n")}`, "stat");
+  }
+
   start() {
+    this.startFetchingSchedules();
     this.app.listen(this.port, () => {
-      this.log(`Server is running on port ${this.port}`);
+      this.log(TEXT_CRONMOWER, null);
+      this.log(
+        `server listening on port ${this.port} with fetchSchedule ${this.fetchSchedule}`,
+        "init"
+      );
     });
   }
 }
