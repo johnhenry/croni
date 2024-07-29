@@ -1,19 +1,19 @@
 {
-  "name": "croni",
+  "name": "cronmower",
   "version": "0.0.0",
   "description": "A server for triggering endpoints remotely on a schedule",
   "main": "index.mjs",
   "type": "module",
-  "types": "types/croni.d.ts",
+  "types": "types/cronmower.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/johnhenry/croni"
+    "url": "https://github.com/johnhenry/cronmower"
   },
   "scripts": {
-    "start": "croni"
+    "start": "cronmower"
   },
   "bin": {
-    "croni": "cli.mjs"
+    "cronmower": "cli.mjs"
   },
   "dependencies": {
     "axios": "^0.27.2",

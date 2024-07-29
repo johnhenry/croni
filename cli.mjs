@@ -7,7 +7,7 @@ import {
   CRONI_PORT,
 } from "./config.mjs";
 import { program } from "commander";
-import CroniServer from "./index.mjs";
+import CronMowerServer from "./index.mjs";
 
 const options = program
   .option(
@@ -33,7 +33,7 @@ const options = program
   .option("-v, --verbose [boolean]", "Verbose mode", CRONI_VERBOSE)
   .parse(process.argv)
   .opts();
-const server = new CroniServer({
+const server = new CronMowerServer({
   ...options,
   scheduleLength: parseInt(options.scheduleLength),
   port: parseInt(options.port),

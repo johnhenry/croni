@@ -1,5 +1,5 @@
-declare module "croni" {
-  interface CroniServerOptions {
+declare module "cronmower" {
+  interface CronMowerServerOptions {
     port?: number;
     fetchSchedule?: string;
     fetchEndpoint?: string;
@@ -7,11 +7,11 @@ declare module "croni" {
     verbose?: boolean;
   }
 
-  class CroniServer {
-    constructor(options: CroniServerOptions);
+  class CronMowerServer {
+    constructor(options: CronMowerServerOptions);
     start(): void;
   }
-  export const CroniServer = CroniServer;
+  export const CronMowerServer = CronMowerServer;
 
-  export default CroniServer;
+  export default CronMowerServer;
 }

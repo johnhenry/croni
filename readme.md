@@ -1,11 +1,13 @@
-# Croni
+# CronMower
 
-Croni is a server for triggering endpoints remotely.
+<img src="./logo.webp" style="width:256px; height:256px">
+
+CronMower is a server for triggering endpoints remotely.
 
 ## Installation
 
 ```bash
-npm install -g croni
+npm install -g cronmower
 ```
 
 ## Usage
@@ -13,7 +15,7 @@ npm install -g croni
 To start the server, run the following command:
 
 ```bash
-croni [options]
+cronmower [options]
 ```
 
 ### Options
