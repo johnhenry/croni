@@ -226,8 +226,7 @@ class CronServer {
   status() {
     const parsedSchedules = parser.parseExpression(this.fetchSchedule);
     const times = [];
-    times.push(`last: {parsedSchedules.prev().toString()}`);
-    times.push(`previous: {parsedSchedules.next().toString()}`);
+    times.push(`last: ${parsedSchedules.next().toString()}`);
     this.log(`${this.fetchEndpoint}\n${times.join("\n")}`, "stat");
   }
 
