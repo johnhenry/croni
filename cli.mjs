@@ -38,4 +38,6 @@ const server = new CronMowerServer({
   scheduleLength: parseInt(options.scheduleLength),
   port: parseInt(options.port),
 });
+
+await server.startFetchingSchedules();
 server.start();

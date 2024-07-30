@@ -2,7 +2,6 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cron from "node-cron";
-import axios from "axios";
 import parser from "cron-parser";
 import { TEXT_CRONMOWER } from "./ascii-art.mjs";
 // import PACKAGE from "./package.json"  with { type: 'json' }
@@ -12,9 +11,9 @@ const PACKAGE = {
   name: "cronmower",
 };
 
-const { log } = console;
+const { log, table } = console;
 const Log = (on) => (on ? log : () => {});
-
+const Table = (on) => (on ? table : () => {});
 import {
   CRONMOWER_FETCH_SCHEDULE,
   CRONMOWER_FETCH_ENDPOINT,
@@ -25,10 +24,10 @@ import {
 /**
  * Represents a Cron Server that sends POST requests to configured endpoints on a cron schedule.
  */
-class CronServer {
+class CronmowerServer {
   /**
-   * Creates an instance of CronServer.
-   * @param {Object} options - The options for configuring the CronServer.
+   * Creates an instance of CronmowerServer.
+   * @param {Object} options - The options for configuring the CronmowerServer.
    * @param {number} options.port - The port on which the server should listen. If not provided, a default port will be used.
    * @param {string} options.fetchSchedule - The cron schedule for fetching schedules from the specified endpoint. If not provided, a default schedule will be used.
    * @param {string} options.fetchEndpoint - The endpoint from which to fetch schedules. If not provided, a default endpoint will be used.
@@ -51,6 +50,7 @@ class CronServer {
       }
       return console.log(message, `\n`);
     };
+    this.table = Table(options.vebose);
 
     this.initRoutes();
   }
@@ -68,6 +68,31 @@ class CronServer {
     this.app.delete("/schedules", this.resetSchedules.bind(this));
     this.app.patch("/", bodyParser.json(), this.updateSchedules.bind(this));
     this.app.get("/", this.getRoot.bind(this));
+    this.app.delete("/[id]", this.deleteJob.bind(this));
+    this.app.put("/[id]", this.startJob.bind(this));
+  }
+  /**
+   * delete job
+   * @param {Object} req - The request object. has "id" as route params
+   * @param {Object} res - The response object.
+   */
+  async deleteJob(req, res) {
+    const { id } = req.params;
+    if (this.removeCronJob(id)) {
+      res.sendStatus(200);
+    } else {
+      res.sendStatus(400);
+    }
+  }
+  /**
+   * Starts a cron job for the specified endpoint.
+   * @param {Object} req - The request object. has "id" as route params
+   * @param {Object} res - The response object.
+   */
+  async startJob(req) {
+    const { id } = req.params;
+    const fetchSchedule = await req.body;
+    this.startCronJob(id, fetchSchedule);
   }
   /**
    * Restarts fetch schedule with optional new schdeule from body
@@ -99,6 +124,7 @@ class CronServer {
    * Starts fetching schedules.
    */
   startFetchingSchedules() {
+    this.log(`starting schedule fetch: ${this.fetchSchedule}`, "info");
     this.cron = cron.schedule(
       this.fetchSchedule,
       this.fetchSchedules.bind(this)
@@ -108,6 +134,7 @@ class CronServer {
    * Stopss fetching schedules.
    */
   stopFetchingSchedules() {
+    this.log("stopping schedule fetch", "info");
     this.cron.stop();
   }
   /**
@@ -117,11 +144,21 @@ class CronServer {
   async fetchSchedules() {
     try {
       this.status();
-      const response = await axios.get(this.fetchEndpoint);
-      this.update(response.data);
+      this.log(`starting schedule fetch: ${this.fetchSchedule}`, "info");
+      const response = await fetch(this.fetchEndpoint);
+      this.update(await response.json());
+      this.table(this.schedules);
     } catch (error) {
       this.log(`Error fetching schedules: ${error.message}`, "error");
     }
+  }
+  removeCronJob(endpoint) {
+    if (this.schedules[endpoint]) {
+      this.stopCronJob(endpoint);
+      delete this.schedules[endpoint];
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -129,17 +166,28 @@ class CronServer {
    * @param {string} endpoint - The endpoint to send the POST request to.
    * @param {string} cronSchedule - The cron schedule for the cron job.
    */
-  startCronJob(endpoint, cronSchedule) {
+  startCronJob(endpoint, cronSchedule = "") {
+    if (this.cronJobs[endpoint]) {
+      this.stopCronJob(endpoint);
+    }
+    if (!cronSchedule) {
+      this.removeCronJob(endpoint);
+      return;
+    }
+    this.log(`cronjob ${endpoint} started`, "info");
     this.cronJobs[endpoint] = cron.schedule(cronSchedule, async () => {
       try {
         this.log(endpoint, "ping");
-        await axios.post(endpoint);
+        const { status } = await fetch(endpoint, { method: "POST" });
+        if (status === 410) {
+          this.removeCronJob(endpoint);
+        }
       } catch (error) {
         this.log(`error pinging ${endpoint}: ${error.message}`, "error");
       }
     });
+    s;
   }
-
   /**
    * Stops the cron job for the specified endpoint.
    * @param {string} endpoint - The endpoint for which to stop the cron job.
@@ -148,6 +196,7 @@ class CronServer {
     if (this.cronJobs[endpoint]) {
       this.cronJobs[endpoint].stop();
       delete this.cronJobs[endpoint];
+      this.log(`cronjob ${endpoint} stopped`, "info");
     }
   }
   update(updatedSchedules) {
@@ -171,7 +220,7 @@ class CronServer {
    */
   async updateSchedules(req, res) {
     const updatedSchedules = await req.body;
-    await this.update(updatedSchedules);
+    this.update(updatedSchedules);
     res.sendStatus(200);
   }
 
@@ -181,10 +230,12 @@ class CronServer {
    * @param {Object} res - The response object.
    */
   getRoot(req, res) {
+    const parsedSchedules = parser.parseExpression(this.fetchSchedule);
+
     res.send(`
       <html>
         <head>
-          <title>Cron Ping Server</title>
+          <title>Cronmower Server</title>
           <style>
             body {
               font-family: Arial, sans-serif;
@@ -197,6 +248,8 @@ class CronServer {
           <h1>Cron Ping Server</h1>
           <p>This server sends POST requests to configured endpoints on a cron schedule.</p>
           <p>The default fetch schedule is set to run every 6 hours (0 */6 * * *).</p>
+          <p>Previous fetch: ${parsedSchedules.prev().toString()}</p>
+          <p>Upcoming fetch: ${parsedSchedules.next().toString()}</p>
         </body>
       </html>
     `);
@@ -220,26 +273,34 @@ class CronServer {
   }
 
   /**
-   * Starts the CronServer by listening on the specified port.
+   * Starts the CronmowerServer by listening on the specified port.
    */
 
   status() {
     const parsedSchedules = parser.parseExpression(this.fetchSchedule);
     const times = [];
-    times.push(`last: ${parsedSchedules.next().toString()}`);
+    times.push(`prev: ${parsedSchedules.prev().toString()}`);
+    times.push(`next: ${parsedSchedules.next().toString()}`);
     this.log(`${this.fetchEndpoint}\n${times.join("\n")}`, "stat");
   }
 
   start() {
-    this.startFetchingSchedules();
-    this.app.listen(this.port, () => {
-      this.log(TEXT_CRONMOWER, null);
-      this.log(
-        `server listening on port ${this.port} with fetchSchedule ${this.fetchSchedule}`,
-        "init"
-      );
+    return new Promise((resolve, reject) => {
+      this.app.listen(this.port, (error) => {
+        if (error) {
+          this.log(`error starting server: ${error.message}`, "error");
+          reject(error);
+          return;
+        }
+        this.log(TEXT_CRONMOWER, null);
+        this.log(
+          `server listening on port ${this.port} with fetchSchedule ${this.fetchSchedule}`,
+          "init"
+        );
+        resolve();
+      });
     });
   }
 }
 
-export default CronServer;
+export default CronmowerServer;

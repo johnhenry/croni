@@ -16,7 +16,6 @@
     "cronmower": "cli.mjs"
   },
   "dependencies": {
-    "axios": "^0.27.2",
     "body-parser": "^1.20.0",
     "commander": "^8.3.0",
     "cron-parser": "^4.9.0",
